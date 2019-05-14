@@ -121,13 +121,25 @@ void warpImage(const Mat &src, double theta, double phi, double gamma,
 	//warpPerspective(src, dst, M, Size(sideLength, sideLength)); //Do actual image warp
 	warpPerspective(src, dst, M, Size(sideLength, sideLength)); //Do actual image warp
 	int w = src.cols, h = src.rows;
-	dst = Mat(dst,
-			Rect((int) ((sideLength - w) / 2), (int) ((sideLength - h) / 2), w,
-					h));
+	dst = Mat(dst, Rect((int) ((sideLength - w) / 2), (int) ((sideLength - h) / 2), w, h));
 }
 
-void applyDistortion(const Mat &src, double deviation) {
+void applyNoise(const Mat &image, double deviation) {
+	cv::Mat noise(image.size(), image.type());
+	double m = (0);
+	double sigma = (deviation / 255.0);
+	cv::randn(noise, m, sigma);
+	image += noise;
+}
 
+void applyBrightnessChange(const Mat &image, float brightness_change){
+	image += brightness_change;
+}
+
+void scaleImage(const Mat &src, Mat &dest, double scale){
+	Mat warp;
+	vector<Point2f> corners;
+	warpImage(src, 0, 0, 0, scale, 5, dest, warp, corners);
 }
 
 void alterImage(const Mat &src, Mat &dest, double rot_x, double rot_y, double rot_z,
@@ -135,16 +147,46 @@ void alterImage(const Mat &src, Mat &dest, double rot_x, double rot_y, double ro
 	Mat warp;
 	vector<Point2f> corners;
 	warpImage(src, rot_z, rot_x, rot_y, 1, 5, dest, warp, corners);
-
+	applyNoise(dest, noise_deviation);
+	applyBrightnessChange(dest, brightness_max_deviation);
 }
 
-Mat image;
+
+Mat demoImage;
 int max_rot_x, max_rot_y, max_rot_z, desired_noise_deviation, max_brightness_change;
-int rot_x_steps, rot_y_steps, rot_z_steps, noise_steps, brightness_change_steps;
+int rot_x_steps, rot_y_steps, rot_z_steps, noise_steps, brightness_change_steps, unusedVal;
+//int display_scale;
+
+const char * CONFIG_WINDOW_TITLE = "Configure Sample Multiplier\0";
+const char * NEGATIVE_EXAMPLE_WINDOW_TITLE = "Negative Value Example";
 
 void on_config_change( int, void* ){
+	//cout << "redrawing..." << endl;
+	int samples_to_be_generated = rot_x_steps + (rot_x_steps*rot_y_steps)
+				+ (rot_x_steps*rot_y_steps*rot_z_steps)
+				+ (rot_x_steps*rot_y_steps*rot_z_steps*noise_steps)
+				+ (rot_x_steps*rot_y_steps*rot_z_steps*noise_steps*brightness_change_steps);
+	cout << endl << "GENERATING " << samples_to_be_generated << " ALTERED IMAGES" << endl << endl;
+	Mat displayImagePos, displayImageNeg;
+	Mat m;
+	//displayImage = demoImage;
+	//if(display_scale == 0) display_scale = 1;
+	//scaleImage(demoImage, displayImage, ((double)display_scale));
+	alterImage(demoImage, displayImagePos, max_rot_x, max_rot_y, max_rot_z, desired_noise_deviation, max_brightness_change/255.0);
+	imshow(CONFIG_WINDOW_TITLE, displayImagePos);
+	alterImage(demoImage, displayImageNeg, -max_rot_x, -max_rot_y, -max_rot_z, 0, -max_brightness_change/255.0);
+	imshow(NEGATIVE_EXAMPLE_WINDOW_TITLE, displayImageNeg);
+}
 
-
+void printType(Mat &mat) {
+         if(mat.depth() == CV_8U)  printf("unsigned char(%d)", mat.channels());
+    else if(mat.depth() == CV_8S)  printf("signed char(%d)", mat.channels());
+    else if(mat.depth() == CV_16U) printf("unsigned short(%d)", mat.channels());
+    else if(mat.depth() == CV_16S) printf("signed short(%d)", mat.channels());
+    else if(mat.depth() == CV_32S) printf("signed int(%d)", mat.channels());
+    else if(mat.depth() == CV_32F) printf("float(%d)", mat.channels());
+    else if(mat.depth() == CV_64F) printf("double(%d)", mat.channels());
+    else                           printf("unknown(%d)", mat.channels());
 }
 
 
@@ -159,12 +201,15 @@ int main(int argc, char *argv[]) {
 				<< endl << endl;
 		cout << "OPTIONAL:" << endl;
 		cout
-				<< " --output :   (optional) output directory (default -> current directory)"
+				<< " --output :   (optional) output directory (default -> current directory)" << endl
+				<< " --show :   (optional) display output before saving."
 				<< endl << endl;
 		exit(-1);
 	}
 
 	char file[128], directory[128], output[128];
+
+	uint8_t show_flag = 0;
 
 	for (int i = 1; i < argc; i+=2) {
 		if(!strcoll(argv[i], "--file")){
@@ -179,48 +224,126 @@ int main(int argc, char *argv[]) {
 			cout << "output: " << argv[i+1] << endl;
 			strcpy(output, argv[i+1]);
 
+		} else if(!strcoll(argv[i], "--show")){
+			cout << "output: " << argv[i+1] << endl;
+			show_flag = 1;
 		} else {
 			cout << "Invalid Argument: " << argv[i];
 			exit(-2);
 		}
 	}
 
-	image = imread(file, CV_LOAD_IMAGE_GRAYSCALE);   // Read the file
-	image.convertTo(image, CV_32F, 1 / 255.0);
+	demoImage = imread(file, CV_LOAD_IMAGE_GRAYSCALE);   // Read the file
+	demoImage.convertTo(demoImage, CV_32F, 1 / 255.0);
 
 
 
 	// CONFIG PHASE
 
-	namedWindow("Configure Sample Multiplier", WINDOW_AUTOSIZE);
-	imshow("Configure Sample Multiplier", image);
+	namedWindow(CONFIG_WINDOW_TITLE, 0);
+	namedWindow(NEGATIVE_EXAMPLE_WINDOW_TITLE, 0);
+	imshow(CONFIG_WINDOW_TITLE, demoImage);
+	imshow(NEGATIVE_EXAMPLE_WINDOW_TITLE, demoImage);
 
 
 
-	// HIER WEITERMACHEN:
-	createTrackbar("Max. X-Rotation", "Configure Sample Multiplier", &max_rot_x, 180, on_config_change, NULL);
-	createTrackbar("Max. Y-Rotation", "Configure Sample Multiplier", &max_rot_y, 180, on_config_change, NULL);
-	createTrackbar("Max. Z-Rotation", "Configure Sample Multiplier", &max_rot_z, 180, on_config_change, NULL);
-	createTrackbar("Desired Noise Deviation", "Configure Sample Multiplier", &desired_noise_deviation, 100, on_config_change, NULL);
-	createTrackbar("Max Brightness Change", "Configure Sample Multiplier", &max_brightness_change, 180, on_config_change, NULL);
+	//createTrackbar("Display Scale", CONFIG_WINDOW_TITLE, &display_scale, 10, on_config_change, NULL);
 
-	createTrackbar("", "Configure Sample Multiplier", &max_rot_x, 180, on_config_change, NULL);
-	createTrackbar("Max. X-Rotation", "Configure Sample Multiplier", &max_rot_x, 180, on_config_change, NULL);
-	createTrackbar("Max. X-Rotation", "Configure Sample Multiplier", &max_rot_x, 180, on_config_change, NULL);
-	createTrackbar("Max. X-Rotation", "Configure Sample Multiplier", &max_rot_x, 180, on_config_change, NULL);
-	createTrackbar("Max. X-Rotation", "Configure Sample Multiplier", &max_rot_x, 180, on_config_change, NULL);
+	createTrackbar("Max. X-Rotation", CONFIG_WINDOW_TITLE, &max_rot_x, 180, on_config_change, NULL);
+	createTrackbar("Max. Y-Rotation", CONFIG_WINDOW_TITLE, &max_rot_y, 180, on_config_change, NULL);
+	createTrackbar("Max. Z-Rotation", CONFIG_WINDOW_TITLE, &max_rot_z, 180, on_config_change, NULL);
+	createTrackbar("Desired Noise Deviation", CONFIG_WINDOW_TITLE, &desired_noise_deviation, 255, on_config_change, NULL);
+	createTrackbar("Max Brightness Change", CONFIG_WINDOW_TITLE, &max_brightness_change, 255, on_config_change, NULL);
+
+	createTrackbar("X-Rotation Alterations", CONFIG_WINDOW_TITLE, &rot_x_steps, 30, on_config_change, NULL);
+	createTrackbar("Y-Rotation Alterations", CONFIG_WINDOW_TITLE, &rot_y_steps, 30, on_config_change, NULL);
+	createTrackbar("Z-Rotation Alterations", CONFIG_WINDOW_TITLE, &rot_z_steps, 30, on_config_change, NULL);
+	createTrackbar("Noise Alterations", CONFIG_WINDOW_TITLE, &noise_steps, 30, on_config_change, NULL);
+	createTrackbar("Brightness Alterations", CONFIG_WINDOW_TITLE, &brightness_change_steps, 30, on_config_change, NULL);
+	createTrackbar("unused", NEGATIVE_EXAMPLE_WINDOW_TITLE, &unusedVal, 1, NULL, NULL);
+
+	int run_flag = 0;
+	createTrackbar("run", CONFIG_WINDOW_TITLE, &run_flag, 1, NULL, NULL);
+
+	while(run_flag == 0) waitKey(20);
+
+	destroyAllWindows();
+
+	vector<Mat> generated_samples;
 
 
-	Mat resultImg;
+	cv::Mat sizeMat(Size(demoImage.cols, demoImage.rows), demoImage.type());
 
-	alterImage(image, resultImg, 0, 0, 0);
 
-	cout << "source size = " << image.cols << "|" << image.rows << endl;
-	cout << "dest size = " << resultImg.cols << "|" << resultImg.rows << endl;
 
-	namedWindow("Destination", WINDOW_AUTOSIZE);
-	imshow("Destination", resultImg);
+	int counter = 0;
 
-	waitKey(0);
+	for(int i = 1; i <= rot_x_steps; i++){
+		Mat newImage;
+		alterImage(demoImage, newImage, (-max_rot_x/2.0) + (i*max_rot_x/rot_x_steps), 0, 0, 0, 0);
+		generated_samples.push_back(newImage);
+		counter++;
+		//cout << "counter = " << counter << endl;
+	}
+
+	int sizebefore = generated_samples.size();
+	for(int i = 1; i <= rot_y_steps; i++){
+		for(int j = 0; j < sizebefore; j++){
+			Mat newImage;
+			alterImage(generated_samples.at(j), newImage, 0, (-max_rot_y/2.0) + (i*max_rot_y/rot_y_steps), 0, 0, 0);
+			generated_samples.push_back(newImage);
+			counter++;
+			//cout << "counter = " << counter << endl;
+		}
+	}
+
+	sizebefore = generated_samples.size();
+	for(int i = 1; i <= rot_z_steps; i++){
+		for(int j = 0; j < sizebefore; j++){
+			Mat newImage;
+			alterImage(generated_samples.at(j), newImage, 0, 0, (-max_rot_z/2.0) + (i*max_rot_z/rot_z_steps), 0, 0);
+			generated_samples.push_back(newImage);
+			counter++;
+			//cout << "counter = " << counter << endl;
+		}
+	}
+
+	sizebefore = generated_samples.size();
+	for(int i = 1; i <= noise_steps; i++){
+		for(int j = 0; j < sizebefore; j++){
+			Mat newImage;
+			alterImage(generated_samples.at(j), newImage, 0, 0, 0, i*desired_noise_deviation/noise_steps, 0);
+			generated_samples.push_back(newImage);
+			counter++;
+			//cout << "counter = " << counter << endl;
+		}
+	}
+
+	sizebefore = generated_samples.size();
+	for(int i = 1; i <= brightness_change_steps; i++){
+		for(int j = 0; j < sizebefore; j++){
+			Mat newImage;
+			alterImage(generated_samples.at(j), newImage, 0, 0, 0, 0, i*max_brightness_change/brightness_change_steps/255.0);
+			generated_samples.push_back(newImage);
+			counter++;
+			//cout << "counter = " << counter << endl;
+		}
+	}
+
+
+	for(int i = 0; i < generated_samples.size(); i++){
+		//cout << "saving image " << i << endl;
+		Mat converted;
+		converted = generated_samples.at(i);
+		converted *= 255.0;
+		generated_samples.at(i).convertTo(converted, CV_16UC3, 255.0);
+		if(show_flag == 1){
+			imshow("Saving this image.", converted);
+			waitKey(0);
+		}
+		imwrite("./output/sample_" + std::to_string(i) + ".png", converted);
+	}
+
+
 
 }
