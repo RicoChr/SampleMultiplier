@@ -4,6 +4,7 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/highgui.hpp>
 #include <math.h>
+#include <dirent.h>
 
 using namespace std;
 using namespace cv;
@@ -152,7 +153,8 @@ void alterImage(const Mat &src, Mat &dest, double rot_x, double rot_y, double ro
 }
 
 
-Mat demoImage;
+Mat suppliedImage;
+vector<Mat> suppliedImages;
 int max_rot_x, max_rot_y, max_rot_z, desired_noise_deviation, max_brightness_change;
 int rot_x_steps, rot_y_steps, rot_z_steps, noise_steps, brightness_change_steps, unusedVal;
 //int display_scale;
@@ -161,20 +163,22 @@ const char * CONFIG_WINDOW_TITLE = "Configure Sample Multiplier\0";
 const char * NEGATIVE_EXAMPLE_WINDOW_TITLE = "Negative Value Example";
 
 void on_config_change( int, void* ){
-	//cout << "redrawing..." << endl;
-	int samples_to_be_generated = rot_x_steps + (rot_x_steps*rot_y_steps)
-				+ (rot_x_steps*rot_y_steps*rot_z_steps)
-				+ (rot_x_steps*rot_y_steps*rot_z_steps*noise_steps)
-				+ (rot_x_steps*rot_y_steps*rot_z_steps*noise_steps*brightness_change_steps);
+
+	int samples_to_be_generated = rot_x_steps
+				+ (rot_x_steps*rot_y_steps)
+				+ ((rot_x_steps + rot_x_steps*rot_y_steps)*rot_z_steps)
+				+ ((rot_x_steps + (rot_x_steps*rot_y_steps) + ((rot_x_steps + rot_x_steps*rot_y_steps)*rot_z_steps))*noise_steps)
+				+ ((rot_x_steps	+ (rot_x_steps*rot_y_steps)	+ ((rot_x_steps + rot_x_steps*rot_y_steps)*rot_z_steps)	+ ((rot_x_steps + (rot_x_steps*rot_y_steps) + ((rot_x_steps + rot_x_steps*rot_y_steps)*rot_z_steps))*noise_steps))*brightness_change_steps);
+
 	cout << endl << "GENERATING " << samples_to_be_generated << " ALTERED IMAGES" << endl << endl;
 	Mat displayImagePos, displayImageNeg;
 	Mat m;
 	//displayImage = demoImage;
 	//if(display_scale == 0) display_scale = 1;
 	//scaleImage(demoImage, displayImage, ((double)display_scale));
-	alterImage(demoImage, displayImagePos, max_rot_x, max_rot_y, max_rot_z, desired_noise_deviation, max_brightness_change/255.0);
+	alterImage(suppliedImage, displayImagePos, max_rot_x, max_rot_y, max_rot_z, desired_noise_deviation, max_brightness_change/255.0);
 	imshow(CONFIG_WINDOW_TITLE, displayImagePos);
-	alterImage(demoImage, displayImageNeg, -max_rot_x, -max_rot_y, -max_rot_z, 0, -max_brightness_change/255.0);
+	alterImage(suppliedImage, displayImageNeg, -max_rot_x, -max_rot_y, -max_rot_z, 0, -max_brightness_change/255.0);
 	imshow(NEGATIVE_EXAMPLE_WINDOW_TITLE, displayImageNeg);
 }
 
@@ -188,6 +192,56 @@ void printType(Mat &mat) {
     else if(mat.depth() == CV_64F) printf("double(%d)", mat.channels());
     else                           printf("unknown(%d)", mat.channels());
 }
+
+
+
+void generateAlteredImages(Mat image, vector<Mat> &generatedImages){
+	cv::Mat sizeMat(Size(image.cols, image.rows), image.type());
+
+		for(int i = 1; i <= rot_x_steps; i++){
+			Mat newImage;
+			alterImage(image, newImage, (-max_rot_x/2.0) + (i*max_rot_x/rot_x_steps), 0, 0, 0, 0);
+			generatedImages.push_back(newImage);
+		}
+
+		int sizebefore = generatedImages.size();
+		for(int i = 1; i <= rot_y_steps; i++){
+			for(int j = 0; j < sizebefore; j++){
+				Mat newImage;
+				alterImage(generatedImages.at(j), newImage, 0, (-max_rot_y/2.0) + (i*max_rot_y/rot_y_steps), 0, 0, 0);
+				generatedImages.push_back(newImage);
+			}
+		}
+
+		sizebefore = generatedImages.size();
+		for(int i = 1; i <= rot_z_steps; i++){
+			for(int j = 0; j < sizebefore; j++){
+				Mat newImage;
+				alterImage(generatedImages.at(j), newImage, 0, 0, (-max_rot_z/2.0) + (i*max_rot_z/rot_z_steps), 0, 0);
+				generatedImages.push_back(newImage);
+			}
+		}
+
+		sizebefore = generatedImages.size();
+		for(int i = 1; i <= noise_steps; i++){
+			for(int j = 0; j < sizebefore; j++){
+				Mat newImage;
+				alterImage(generatedImages.at(j), newImage, 0, 0, 0, i*desired_noise_deviation/noise_steps, 0);
+				generatedImages.push_back(newImage);
+			}
+		}
+
+		sizebefore = generatedImages.size();
+		for(int i = 1; i <= brightness_change_steps; i++){
+			for(int j = 0; j < sizebefore; j++){
+				Mat newImage;
+				alterImage(generatedImages.at(j), newImage, 0, 0, 0, 0, i*max_brightness_change/brightness_change_steps/255.0);
+				generatedImages.push_back(newImage);
+			}
+		}
+}
+
+
 
 
 int main(int argc, char *argv[]) {
@@ -208,6 +262,7 @@ int main(int argc, char *argv[]) {
 	}
 
 	char file[128], directory[128], output[128];
+	bool hasFile = false, hasDir = false, hasOutput = false;
 
 	uint8_t show_flag = 0;
 
@@ -215,14 +270,17 @@ int main(int argc, char *argv[]) {
 		if(!strcoll(argv[i], "--file")){
 			cout << "file: " << argv[i+1] << endl;
 			strcpy(file, argv[i+1]);
+			hasFile = true;
 
 		} else if(!strcoll(argv[i], "--dir")){
 			cout << "dir: "<< argv[i+1] << endl;
 			strcpy(directory, argv[i+1]);
+			hasDir = true;
 
 		} else if(!strcoll(argv[i], "--output")){
 			cout << "output: " << argv[i+1] << endl;
 			strcpy(output, argv[i+1]);
+			hasOutput = true;
 
 		} else if(!strcoll(argv[i], "--show")){
 			cout << "output: " << argv[i+1] << endl;
@@ -233,8 +291,34 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
-	demoImage = imread(file, CV_LOAD_IMAGE_GRAYSCALE);   // Read the file
-	demoImage.convertTo(demoImage, CV_32F, 1 / 255.0);
+	if(hasFile && hasDir){
+		cout << "ERROR: Please supply either the filename or the directory. Not both." << endl;
+		exit(-3);
+	}
+
+
+	if(hasDir){
+		DIR *dir;
+		struct dirent *ent;
+		if ((dir = opendir (directory)) != NULL) {
+		  /* print all the files and directories within directory */
+		  while ((ent = readdir (dir)) != NULL) {
+			printf ("%s\n", ent->d_name);
+			if(strstr(ent->d_name, ".png") != NULL || strstr(ent->d_name, ".jpg") != NULL || strstr(ent->d_name, ".jpeg") != NULL){
+				suppliedImages.push_back(imread(ent->d_name, CV_LOAD_IMAGE_GRAYSCALE));
+			}
+		  }
+		  closedir (dir);
+		} else {
+		  /* could not open directory */
+		  perror ("");
+		  return EXIT_FAILURE;
+		}
+		cout << "Read " << suppliedImages.size() << " images." << endl;
+	} else {
+		suppliedImage = imread(file, CV_LOAD_IMAGE_GRAYSCALE);   // Read the file
+		suppliedImage.convertTo(suppliedImage, CV_32F, 1 / 255.0);
+	}
 
 
 
@@ -242,12 +326,8 @@ int main(int argc, char *argv[]) {
 
 	namedWindow(CONFIG_WINDOW_TITLE, 0);
 	namedWindow(NEGATIVE_EXAMPLE_WINDOW_TITLE, 0);
-	imshow(CONFIG_WINDOW_TITLE, demoImage);
-	imshow(NEGATIVE_EXAMPLE_WINDOW_TITLE, demoImage);
-
-
-
-	//createTrackbar("Display Scale", CONFIG_WINDOW_TITLE, &display_scale, 10, on_config_change, NULL);
+	imshow(CONFIG_WINDOW_TITLE, suppliedImage);
+	imshow(NEGATIVE_EXAMPLE_WINDOW_TITLE, suppliedImage);
 
 	createTrackbar("Max. X-Rotation", CONFIG_WINDOW_TITLE, &max_rot_x, 180, on_config_change, NULL);
 	createTrackbar("Max. Y-Rotation", CONFIG_WINDOW_TITLE, &max_rot_y, 180, on_config_change, NULL);
@@ -269,70 +349,21 @@ int main(int argc, char *argv[]) {
 
 	destroyAllWindows();
 
+
+
+
+	// GENERATION PHASE
+
 	vector<Mat> generated_samples;
-
-
-	cv::Mat sizeMat(Size(demoImage.cols, demoImage.rows), demoImage.type());
-
-
-
-	int counter = 0;
-
-	for(int i = 1; i <= rot_x_steps; i++){
-		Mat newImage;
-		alterImage(demoImage, newImage, (-max_rot_x/2.0) + (i*max_rot_x/rot_x_steps), 0, 0, 0, 0);
-		generated_samples.push_back(newImage);
-		counter++;
-		//cout << "counter = " << counter << endl;
-	}
-
-	int sizebefore = generated_samples.size();
-	for(int i = 1; i <= rot_y_steps; i++){
-		for(int j = 0; j < sizebefore; j++){
-			Mat newImage;
-			alterImage(generated_samples.at(j), newImage, 0, (-max_rot_y/2.0) + (i*max_rot_y/rot_y_steps), 0, 0, 0);
-			generated_samples.push_back(newImage);
-			counter++;
-			//cout << "counter = " << counter << endl;
-		}
-	}
-
-	sizebefore = generated_samples.size();
-	for(int i = 1; i <= rot_z_steps; i++){
-		for(int j = 0; j < sizebefore; j++){
-			Mat newImage;
-			alterImage(generated_samples.at(j), newImage, 0, 0, (-max_rot_z/2.0) + (i*max_rot_z/rot_z_steps), 0, 0);
-			generated_samples.push_back(newImage);
-			counter++;
-			//cout << "counter = " << counter << endl;
-		}
-	}
-
-	sizebefore = generated_samples.size();
-	for(int i = 1; i <= noise_steps; i++){
-		for(int j = 0; j < sizebefore; j++){
-			Mat newImage;
-			alterImage(generated_samples.at(j), newImage, 0, 0, 0, i*desired_noise_deviation/noise_steps, 0);
-			generated_samples.push_back(newImage);
-			counter++;
-			//cout << "counter = " << counter << endl;
-		}
-	}
-
-	sizebefore = generated_samples.size();
-	for(int i = 1; i <= brightness_change_steps; i++){
-		for(int j = 0; j < sizebefore; j++){
-			Mat newImage;
-			alterImage(generated_samples.at(j), newImage, 0, 0, 0, 0, i*max_brightness_change/brightness_change_steps/255.0);
-			generated_samples.push_back(newImage);
-			counter++;
-			//cout << "counter = " << counter << endl;
-		}
+	if(hasFile){
+		generateAlteredImages(suppliedImage, generated_samples);
+	} else {
+		cout << "ERROR: Dir Processing not implemented." << endl;
+		exit(-42);
 	}
 
 
-	for(int i = 0; i < generated_samples.size(); i++){
-		//cout << "saving image " << i << endl;
+	for(uint32_t i = 0; i < generated_samples.size(); i++){
 		Mat converted;
 		converted = generated_samples.at(i);
 		converted *= 255.0;
