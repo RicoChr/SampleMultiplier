@@ -5,6 +5,7 @@
 #include <opencv2/highgui.hpp>
 #include <math.h>
 #include <dirent.h>
+#include <sys/stat.h>
 
 using namespace std;
 using namespace cv;
@@ -16,6 +17,19 @@ static double rad2Deg(double rad) {
 static double deg2Rad(double deg) {
 	return deg * (M_PI / 180);
 } //Convert degrees to radians
+
+
+void printType(Mat &mat) {
+         if(mat.depth() == CV_8U)  printf("unsigned char(%d)", mat.channels());
+    else if(mat.depth() == CV_8S)  printf("signed char(%d)", mat.channels());
+    else if(mat.depth() == CV_16U) printf("unsigned short(%d)", mat.channels());
+    else if(mat.depth() == CV_16S) printf("signed short(%d)", mat.channels());
+    else if(mat.depth() == CV_32S) printf("signed int(%d)", mat.channels());
+    else if(mat.depth() == CV_32F) printf("float(%d)", mat.channels());
+    else if(mat.depth() == CV_64F) printf("double(%d)", mat.channels());
+    else                           printf("unknown(%d)", mat.channels());
+}
+
 
 void warpMatrix(Size sz, double theta, double phi, double gamma, double scale,
 		double fovy, Mat& M, vector<Point2f>* corners) {
@@ -125,7 +139,7 @@ void warpImage(const Mat &src, double theta, double phi, double gamma,
 	dst = Mat(dst, Rect((int) ((sideLength - w) / 2), (int) ((sideLength - h) / 2), w, h));
 }
 
-void applyNoise(const Mat &image, double deviation) {
+void applyNoise(Mat &image, double deviation) {
 	cv::Mat noise(image.size(), image.type());
 	double m = (0);
 	double sigma = (deviation / 255.0);
@@ -133,7 +147,7 @@ void applyNoise(const Mat &image, double deviation) {
 	image += noise;
 }
 
-void applyBrightnessChange(const Mat &image, float brightness_change){
+void applyBrightnessChange(Mat &image, float brightness_change){
 	image += brightness_change;
 }
 
@@ -150,6 +164,7 @@ void alterImage(const Mat &src, Mat &dest, double rot_x, double rot_y, double ro
 	warpImage(src, rot_z, rot_x, rot_y, 1, 5, dest, warp, corners);
 	applyNoise(dest, noise_deviation);
 	applyBrightnessChange(dest, brightness_max_deviation);
+
 }
 
 
@@ -159,16 +174,20 @@ int max_rot_x, max_rot_y, max_rot_z, desired_noise_deviation, max_brightness_cha
 int rot_x_steps, rot_y_steps, rot_z_steps, noise_steps, brightness_change_steps, unusedVal;
 //int display_scale;
 
-const char * CONFIG_WINDOW_TITLE = "Configure Sample Multiplier\0";
+const char * CONFIG_WINDOW_TITLE = "Configure Sample Multiplier";
 const char * NEGATIVE_EXAMPLE_WINDOW_TITLE = "Negative Value Example";
+
+bool hasFile = false, hasDir = false, hasOutput = false;
 
 void on_config_change( int, void* ){
 
-	int samples_to_be_generated = rot_x_steps
+	int samples_to_be_generated = (
+				rot_x_steps
 				+ (rot_x_steps*rot_y_steps)
 				+ ((rot_x_steps + rot_x_steps*rot_y_steps)*rot_z_steps)
 				+ ((rot_x_steps + (rot_x_steps*rot_y_steps) + ((rot_x_steps + rot_x_steps*rot_y_steps)*rot_z_steps))*noise_steps)
-				+ ((rot_x_steps	+ (rot_x_steps*rot_y_steps)	+ ((rot_x_steps + rot_x_steps*rot_y_steps)*rot_z_steps)	+ ((rot_x_steps + (rot_x_steps*rot_y_steps) + ((rot_x_steps + rot_x_steps*rot_y_steps)*rot_z_steps))*noise_steps))*brightness_change_steps);
+				+ ((rot_x_steps	+ (rot_x_steps*rot_y_steps)	+ ((rot_x_steps + rot_x_steps*rot_y_steps)*rot_z_steps)	+ ((rot_x_steps + (rot_x_steps*rot_y_steps) + ((rot_x_steps + rot_x_steps*rot_y_steps)*rot_z_steps))*noise_steps))*brightness_change_steps)
+				) * suppliedImages.size()		;
 
 	cout << endl << "GENERATING " << samples_to_be_generated << " ALTERED IMAGES" << endl << endl;
 	Mat displayImagePos, displayImageNeg;
@@ -176,22 +195,15 @@ void on_config_change( int, void* ){
 	//displayImage = demoImage;
 	//if(display_scale == 0) display_scale = 1;
 	//scaleImage(demoImage, displayImage, ((double)display_scale));
+
+	if(hasDir)suppliedImage = suppliedImages.at(0).clone();
+
 	alterImage(suppliedImage, displayImagePos, max_rot_x, max_rot_y, max_rot_z, desired_noise_deviation, max_brightness_change/255.0);
 	imshow(CONFIG_WINDOW_TITLE, displayImagePos);
 	alterImage(suppliedImage, displayImageNeg, -max_rot_x, -max_rot_y, -max_rot_z, 0, -max_brightness_change/255.0);
 	imshow(NEGATIVE_EXAMPLE_WINDOW_TITLE, displayImageNeg);
 }
 
-void printType(Mat &mat) {
-         if(mat.depth() == CV_8U)  printf("unsigned char(%d)", mat.channels());
-    else if(mat.depth() == CV_8S)  printf("signed char(%d)", mat.channels());
-    else if(mat.depth() == CV_16U) printf("unsigned short(%d)", mat.channels());
-    else if(mat.depth() == CV_16S) printf("signed short(%d)", mat.channels());
-    else if(mat.depth() == CV_32S) printf("signed int(%d)", mat.channels());
-    else if(mat.depth() == CV_32F) printf("float(%d)", mat.channels());
-    else if(mat.depth() == CV_64F) printf("double(%d)", mat.channels());
-    else                           printf("unknown(%d)", mat.channels());
-}
 
 
 
@@ -262,7 +274,7 @@ int main(int argc, char *argv[]) {
 	}
 
 	char file[128], directory[128], output[128];
-	bool hasFile = false, hasDir = false, hasOutput = false;
+
 
 	uint8_t show_flag = 0;
 
@@ -305,7 +317,9 @@ int main(int argc, char *argv[]) {
 		  while ((ent = readdir (dir)) != NULL) {
 			printf ("%s\n", ent->d_name);
 			if(strstr(ent->d_name, ".png") != NULL || strstr(ent->d_name, ".jpg") != NULL || strstr(ent->d_name, ".jpeg") != NULL){
-				suppliedImages.push_back(imread(ent->d_name, CV_LOAD_IMAGE_GRAYSCALE));
+				Mat loadedImage = imread((string(directory) + string(ent->d_name)).c_str(), CV_LOAD_IMAGE_GRAYSCALE);
+				loadedImage.convertTo(loadedImage, CV_32F, 1 / 255.0);
+				suppliedImages.push_back(loadedImage);
 			}
 		  }
 		  closedir (dir);
@@ -326,8 +340,14 @@ int main(int argc, char *argv[]) {
 
 	namedWindow(CONFIG_WINDOW_TITLE, 0);
 	namedWindow(NEGATIVE_EXAMPLE_WINDOW_TITLE, 0);
-	imshow(CONFIG_WINDOW_TITLE, suppliedImage);
-	imshow(NEGATIVE_EXAMPLE_WINDOW_TITLE, suppliedImage);
+
+	if(hasFile){
+		imshow(CONFIG_WINDOW_TITLE, suppliedImage);
+		imshow(NEGATIVE_EXAMPLE_WINDOW_TITLE, suppliedImage);
+	} else {
+		imshow(CONFIG_WINDOW_TITLE, suppliedImages.at(0));
+		imshow(NEGATIVE_EXAMPLE_WINDOW_TITLE, suppliedImages.at(0));
+	}
 
 	createTrackbar("Max. X-Rotation", CONFIG_WINDOW_TITLE, &max_rot_x, 180, on_config_change, NULL);
 	createTrackbar("Max. Y-Rotation", CONFIG_WINDOW_TITLE, &max_rot_y, 180, on_config_change, NULL);
@@ -354,25 +374,44 @@ int main(int argc, char *argv[]) {
 
 	// GENERATION PHASE
 
-	vector<Mat> generated_samples;
+	vector<Mat> all_generated_samples;
 	if(hasFile){
-		generateAlteredImages(suppliedImage, generated_samples);
+		generateAlteredImages(suppliedImage, all_generated_samples);
 	} else {
-		cout << "ERROR: Dir Processing not implemented." << endl;
-		exit(-42);
+		cout << "Generating...       ";
+		int count = suppliedImages.size();
+		int i = 1;
+
+		for(vector<Mat>::iterator it = suppliedImages.begin(); it != suppliedImages.end(); it++){
+
+			int percentage = 100 * i / count;
+			printf("\033[4D");
+			printf("%3.0d\%", percentage);
+			fflush(stdout);
+
+			vector<Mat> generated_samples;
+			generateAlteredImages(*it, generated_samples);
+			all_generated_samples.insert(all_generated_samples.end(), generated_samples.begin(), generated_samples.end());
+			i++;
+		}
 	}
+	printf("\n");
 
-
-	for(uint32_t i = 0; i < generated_samples.size(); i++){
+	for(uint32_t i = 0; i < all_generated_samples.size(); i++){
 		Mat converted;
-		converted = generated_samples.at(i);
+		converted = all_generated_samples.at(i);
 		converted *= 255.0;
-		generated_samples.at(i).convertTo(converted, CV_16UC3, 255.0);
+		all_generated_samples.at(i).convertTo(converted, CV_16UC3, 255.0);
 		if(show_flag == 1){
 			imshow("Saving this image.", converted);
 			waitKey(0);
 		}
-		imwrite("./output/sample_" + std::to_string(i) + ".png", converted);
+
+		mkdir(output, 0777);
+
+
+		if(hasOutput) 	imwrite("./" + string(output) + "/sample_" + std::to_string(i) + ".png", converted);
+		else			imwrite("./output/sample_" + std::to_string(i) + ".png", converted);
 	}
 
 
