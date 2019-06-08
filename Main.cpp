@@ -1,4 +1,5 @@
 #include <iostream>
+#include <algorithm>
 #include <opencv2/core.hpp>
 #include <opencv2/calib3d/calib3d.hpp>
 #include <opencv2/imgproc.hpp>
@@ -170,6 +171,7 @@ void alterImage(const Mat &src, Mat &dest, double rot_x, double rot_y, double ro
 
 Mat suppliedImage;
 vector<Mat> suppliedImages;
+int padding;
 int max_rot_x, max_rot_y, max_rot_z, desired_noise_deviation, max_brightness_change;
 int rot_x_steps, rot_y_steps, rot_z_steps, noise_steps, brightness_change_steps, unusedVal;
 //int display_scale;
@@ -198,7 +200,14 @@ void on_config_change( int, void* ){
 
 	if(hasDir)suppliedImage = suppliedImages.at(0).clone();
 
+
+	if(padding > (suppliedImage.cols/2 - 1) || (padding > (suppliedImage.rows/2 - 1))){
+		padding = std::min(suppliedImage.cols/2 - 1, suppliedImage.rows/2 - 1);
+	}
+
 	alterImage(suppliedImage, displayImagePos, max_rot_x, max_rot_y, max_rot_z, desired_noise_deviation, max_brightness_change/255.0);
+	cvtColor(displayImagePos, displayImagePos, CV_GRAY2BGR);
+	rectangle(displayImagePos, Point(padding, padding), Point(displayImagePos.cols-1-padding, displayImagePos.rows-1-padding), Scalar(0,255,0));
 	imshow(CONFIG_WINDOW_TITLE, displayImagePos);
 	alterImage(suppliedImage, displayImageNeg, -max_rot_x, -max_rot_y, -max_rot_z, 0, -max_brightness_change/255.0);
 	imshow(NEGATIVE_EXAMPLE_WINDOW_TITLE, displayImageNeg);
@@ -349,6 +358,7 @@ int main(int argc, char *argv[]) {
 		imshow(NEGATIVE_EXAMPLE_WINDOW_TITLE, suppliedImages.at(0));
 	}
 
+	createTrackbar("Padding", CONFIG_WINDOW_TITLE, &padding, 512, on_config_change, NULL);
 	createTrackbar("Max. X-Rotation", CONFIG_WINDOW_TITLE, &max_rot_x, 180, on_config_change, NULL);
 	createTrackbar("Max. Y-Rotation", CONFIG_WINDOW_TITLE, &max_rot_y, 180, on_config_change, NULL);
 	createTrackbar("Max. Z-Rotation", CONFIG_WINDOW_TITLE, &max_rot_z, 180, on_config_change, NULL);
@@ -409,6 +419,7 @@ int main(int argc, char *argv[]) {
 
 		mkdir(output, 0777);
 
+		converted = converted(Rect(padding, padding, converted.cols-(padding*2), converted.rows-(padding*2)));
 
 		if(hasOutput) 	imwrite("./" + string(output) + "/sample_" + std::to_string(i) + ".png", converted);
 		else			imwrite("./output/sample_" + std::to_string(i) + ".png", converted);
